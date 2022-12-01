@@ -6,73 +6,62 @@ import frappe
 from frappe import _
 
 def execute(filters=None):
+	
+	# get current user branch
+	userBranch = frappe.db.get_value("Employee", {'user_id':frappe.session.user}, ["branch"])
 	columns = get_columns()
-	data = get_data(filters)
+	data = get_data(filters, userBranch)
 	
-	
-	
-	# data = prepare_data(filters)
-	
-	# data = export_data
 	return columns, data
 
-def get_data(filters):
-	
-	userBranch = frappe.db.get_value("Employee", {'user_id':frappe.session.user}, ["branch"])
+def get_data(filters, userBranch):
+
+	payment_modes = []
 	data = []
 
-	cash_list_head = [{'mode_of_payment': 'مبيعات نقدية','indent':0, 'has_value': True}]
-	data.append(cash_list_head[0])
+	# if user branch has value then list (mode of payments) that has the (branch name) in them
+	# if empty show error message.
+	if(userBranch):
+		payment_modes = frappe.db.get_list('Mode of Payment', filters={'name':["like",f"%{userBranch}%"]}, order_by='name desc')
+	else:
+		frappe.msgprint('هذا التقرير لإغلاق الحساب فقط, الرجاء الدخول بحساب مدير محل')
+		return data
 
-	# for parent in cash_list_head:
-	# 	parent["has_value"] = True
-	# 	data.append(parent)
+	# loop through mode of payments and add them to the result list as heads
+	for p in payment_modes:
+		list_head = [{'mode_of_payment': p.name,'indent':0, 'has_value': True}]
+		data.append(list_head[0])
 
-	cash_data = frappe.db.get_list('Payment Entry',
-	fields=['mode_of_payment','name','paid_from_account_balance','base_paid_amount','received_amount', ('received_amount-base_paid_amount as diff'), 'posting_date', '1 as indent'],		filters={
+		# get the data for each mode of payment
+		node_data = frappe.db.get_list('Payment Entry',
+			fields=['mode_of_payment','name','paid_from_account_balance','base_paid_amount','received_amount', ('received_amount-base_paid_amount as diff'), 'posting_date', '1 as indent'],		
+			filters={
 			'status':"Submitted",
-			'mode_of_payment':["like",f"%نقدية%"],
-			'posting_date':["between", (filters.get("from_date"),filters.get("to_date"))]})
-	
-	for data_f in cash_data:
-		data_f["has_value"] = False
-		data.append(data_f)
+			'mode_of_payment':p.name,
+			'posting_date':["between", (filters.get("from_date"),filters.get("to_date"))]}
+			,order_by='posting_date desc')
+		
+		# loop through the data for said mode of payment and add it under its appropriate node
+		# and add it to result list
+		total_paid = 0
+		total_recieved = 0
+		total_diff = 0
 
-	frappe.msgprint(str(cash_list_head[0]))
+		for nd in node_data:
+			nd["has_value"] = False
+			total_paid += nd.base_paid_amount
+			total_recieved += nd.received_amount
+			total_diff += nd.diff
 
-	credit_list_head = [{'mode_of_payment': 'مبيعات بطاقة','indent':0, 'has_value': True}]
-	data.append(credit_list_head[0])
+			data.append(nd)
+		
+		c_total_row = {'paid_from_account_balance':'الاجمـالي','base_paid_amount': total_paid, 'received_amount': total_recieved,'diff': total_diff, 'indent':0, 'has_value': False}
+		data.append(c_total_row)
 
-	credit_data = frappe.db.get_list('Payment Entry',
-		fields=['mode_of_payment','name','paid_from_account_balance','base_paid_amount','received_amount', ('received_amount-base_paid_amount as diff'), 'posting_date', '1 as indent'],
-		filters={
-			'status':"Submitted",
-			'mode_of_payment':["like",],
-			'mode_of_payment':["like",f"%بطاقة%"],
-			'posting_date':["between", (filters.get("from_date"),filters.get("to_date"))]})
-	
-	for data_f in credit_data:
-		data_f["has_value"] = False
-		data.append(data_f)
-
+		data.append({'mode_of_payment': '', 'indent':0, 'has_value': False})
 
 
-
-	bank_list_head = [{'mode_of_payment': 'مبيعات صكوك','indent':0, 'has_value': True}]
-	data.append(bank_list_head[0])
-
-	bank_data = frappe.db.get_list('Payment Entry',
-		fields=['mode_of_payment','name','paid_from_account_balance','base_paid_amount','received_amount', ('received_amount-base_paid_amount as diff'), 'posting_date', '1 as indent'],
-		filters={
-			'status':"Submitted",
-			'mode_of_payment':["like","%صك%"],
-			'posting_date':["between", (filters.get("from_date"),filters.get("to_date"))]})
-	
-	for data_f in bank_data:
-		data_f["has_value"] = False
-		data.append(data_f)
-
-	# frappe.msgprint(bek)
+	#return data list
 	return data
 
 
@@ -85,7 +74,7 @@ def get_columns():
 			"label": _("طريقة الدفع"),
 			"fieldtype": "Data",
 			# "options": "Mode of Payment",
-			"width": 100
+			"width": 130
 		}
 		,
 		{

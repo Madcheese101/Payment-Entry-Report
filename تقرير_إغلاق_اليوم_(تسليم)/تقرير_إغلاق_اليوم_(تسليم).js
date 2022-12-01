@@ -7,7 +7,8 @@ frappe.query_reports["تقرير إغلاق اليوم (تسليم)"] = {
 		{
             fieldname:"from_date",
             label: "From Date",
-            fieldtype: "Date"
+            fieldtype: "Date",
+            default: frappe.datetime.add_days(frappe.datetime.get_today(), -1)
         },
         {
             fieldname:"to_date",
